@@ -128,8 +128,8 @@ def get_agent(sym):
 
 # ─── Random Forest–style ensemble prediction ─────────────────────────────────
 def rf_predict(prices, volumes, rsi_v, macd_v, bb_pct):
-    if len(prices) < 20:
-        return [], 50, "SIDEWAYS"
+    if len(prices) < 10:
+        return [], 30, "CALIBRATING"
 
     curr = prices[-1]
     m1 = (prices[-1] - prices[-2]) / prices[-2] if len(prices) >= 2 and prices[-2] else 0
@@ -222,8 +222,8 @@ def health():
 async def predict(req: PredictRequest):
     prices = [d.price for d in req.data]
     volumes = [d.volume for d in req.data]
-    if len(prices) < 10:
-        return {"error": "Not enough data"}
+    if len(prices) < 8:
+        return {"error": "Not enough data", "count": len(prices)}
 
     rsi_v = rsi(prices)
     macd_v = macd(prices)
