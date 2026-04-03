@@ -13,6 +13,8 @@ import StatsPanel from './components/tabs/StatsPanel';
 
 import { calcRSI, calcMACD, calcBollingerBands } from './utils/indicators';
 import { formatPrice, formatTime } from './utils/formatter';
+import { SpeedInsights } from "@vercel/speed-insights/react";
+import { Analytics } from "@vercel/analytics/react";
 
 const TABS = [
   { id: 'chart',      label: '📊 График' },
@@ -450,6 +452,8 @@ export default function App() {
   return (
     <>
       <NotificationSystem notifs={notifs} onDismiss={dismiss} />
+      <SpeedInsights />
+      <Analytics />
 
       <div className="dashboard">
         {/* ── Left Sidebar ── */}
