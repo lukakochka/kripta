@@ -174,9 +174,10 @@ export default function App() {
 
         if (streamName.includes('@trade')) {
           const price = parseFloat(msg.data.p);
+          if (!price || price <= 0) return; // Sanitize: Ignore zeros or invalid prices
           const qty   = parseFloat(msg.data.q);
           volumeRef.current[coin] = (volumeRef.current[coin] || 0) + qty;
-          pricesRef.current[coin] = price; // Update ref immediately
+          pricesRef.current[coin] = price;
           setPrices(prev => {
             prevPricesRef.current[coin] = prev[coin] || price;
             return { ...prev, [coin]: price };
@@ -207,8 +208,10 @@ export default function App() {
           if (SYMBOLS[item.symbol]) {
             const sym = SYMBOLS[item.symbol].short;
             const p = parseFloat(item.price);
-            priceMap[sym] = p;
-            pricesRef.current[sym] = p; // Update ref immediately
+            if (p > 0) { // Sanitize
+              priceMap[sym] = p;
+              pricesRef.current[sym] = p;
+            }
           }
         });
 
@@ -250,7 +253,7 @@ export default function App() {
             volume: parseFloat(k[5]) / 60,
             imbalance: 0,
             btc_momentum: 0,
-          }));
+          })).filter(c => c.price > 0); // Sanitize history
           historiesRef.current[coinCode] = candles;
           
           if (coinCode === activeCoin) {
@@ -422,9 +425,14 @@ export default function App() {
           for (let i = 1; i <= 5; i++) {
             let nextNorm = net.run(seq);
             if (typeof nextNorm !== 'number' || isNaN(nextNorm)) nextNorm = 0.5;
-            seq = [...seq.slice(1), nextNorm]; // slide window
-            const delta = nextNorm * diffD + minD;
-            const dampedDelta = delta * Math.pow(0.75, i); // decay to reduce drift
+            seq = [...seq.slice(1), nextNorm]; 
+            
+            let delta = nextNorm * diffD + minD;
+            // Robust clamping: prevent spikes over 5% per point
+            const maxAllowedDelta = lastP * 0.05;
+            delta = Math.max(-maxAllowedDelta, Math.min(maxAllowedDelta, delta));
+            
+            const dampedDelta = delta * Math.pow(0.5, i); 
             const nextP = lastP + dampedDelta;
             forecast.push({ offset: i, predict_browser: isFinite(nextP) ? nextP : lastP });
             lastP = isFinite(nextP) ? nextP : lastP;
