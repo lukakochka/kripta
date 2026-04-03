@@ -93,6 +93,7 @@ export default function App() {
 
   // ─── Refs (no re-render needed) ───────────────────────────────
   const historiesRef  = useRef({ BTC: [], ETH: [], SOL: [], TON: [] });
+  const pricesRef     = useRef({ BTC: 0, ETH: 0, SOL: 0, TON: 0 }); // Live ref for stable interval
   const volumeRef     = useRef({ BTC: 0, ETH: 0, SOL: 0, TON: 0 });
   const prevPricesRef = useRef({});
   const imbalancesRef = useRef({ BTC: 0, ETH: 0, SOL: 0, TON: 0 });
@@ -175,6 +176,7 @@ export default function App() {
           const price = parseFloat(msg.data.p);
           const qty   = parseFloat(msg.data.q);
           volumeRef.current[coin] = (volumeRef.current[coin] || 0) + qty;
+          pricesRef.current[coin] = price; // Update ref immediately
           setPrices(prev => {
             prevPricesRef.current[coin] = prev[coin] || price;
             return { ...prev, [coin]: price };
@@ -203,7 +205,10 @@ export default function App() {
         const priceMap = {};
         data.forEach(item => {
           if (SYMBOLS[item.symbol]) {
-            priceMap[SYMBOLS[item.symbol].short] = parseFloat(item.price);
+            const sym = SYMBOLS[item.symbol].short;
+            const p = parseFloat(item.price);
+            priceMap[sym] = p;
+            pricesRef.current[sym] = p; // Update ref immediately
           }
         });
 
@@ -268,13 +273,14 @@ export default function App() {
     pythonRef.current = pythonForecast;
 
     const tick = setInterval(() => {
-      const btcMom = (prices['BTC'] || 0) - (prevPricesRef.current['BTC'] || prices['BTC'] || 0);
+      const btcPrice = pricesRef.current['BTC'] || 0;
+      const btcMom = btcPrice - (prevPricesRef.current['BTC'] || btcPrice);
       const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
       // Update ALL coin histories in parallel
       Object.keys(SYMBOLS).forEach(sFull => {
         const c = SYMBOLS[sFull].short;
-        const cPrice = prices[c];
+        const cPrice = pricesRef.current[c]; // Read from ref for stability
         if (!cPrice) return;
 
         const vol = volumeRef.current[c] || 0;
@@ -288,10 +294,10 @@ export default function App() {
           btc_momentum: btcMom,
         };
 
-        const h = [...(historiesRef.current[c] || []), pt].slice(-10000); // 10,000 pts buffer
+        const h = [...(historiesRef.current[c] || []), pt].slice(-10000); 
         historiesRef.current[c] = h;
 
-        // If this is the active coin, update the UI
+        // If this is the active coin, update the UI and re-run predictions if needed
         if (c === activeCoin) {
           const rawPrices = h.map(d => d.price);
           const rsiArr = calcRSI(rawPrices);
@@ -317,7 +323,7 @@ export default function App() {
 
     return () => clearInterval(tick);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prices, activeCoin, brainForecast, pythonForecast]);
+  }, [activeCoin, brainForecast, pythonForecast]);
 
   // ═══════════════════════════════════════════════════════════════
   // 4. AI Engine — every 3 seconds
