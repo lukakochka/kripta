@@ -121,7 +121,7 @@ export default function App() {
   const [equityCurve, setEquityCurve] = useState([{ time: formatTime(), equity: 10000 }]);
 
   // ─── Forecast accuracy ────────────────────────────────────────
-  const [forecastHistory, setForecastHistory] = useState([]);
+  const [forecastHistory, setForecastHistory] = useState({ BTC: [], ETH: [], SOL: [], TON: [] });
 
   // ─── Notifications ────────────────────────────────────────────
   const { notifs, push: pushNotif, dismiss } = useNotifications();
@@ -172,6 +172,7 @@ export default function App() {
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     historyRef.current = [];
+    pendingFcRef.current = null; // Important: Reset pending forecast on coin switch
     setChartData([]);
     setIndicatorData([]);
     setBrainForecast([]);
@@ -276,12 +277,18 @@ export default function App() {
       // ── Resolve previous pending forecast for accuracy chart ──
       if (pendingFcRef.current) {
         const { lstm, rf } = pendingFcRef.current;
-        setForecastHistory(prev => [...prev.slice(-49), {
-          time:   formatTime(),
-          actual: currPrice,
-          lstm:   lstm,
-          rf:     rf,
-        }]);
+        setForecastHistory(prev => {
+          const coinHistory = prev[activeCoin] || [];
+          return {
+            ...prev,
+            [activeCoin]: [...coinHistory.slice(-49), {
+              time:   formatTime(),
+              actual: currPrice,
+              lstm:   lstm,
+              rf:     rf,
+            }]
+          };
+        });
       }
 
       let pyMacro = macroSentiment;
@@ -535,7 +542,7 @@ export default function App() {
           <div className="tab-content" key={activeTab}>
             {activeTab === 'chart'      && <LiveChart chartData={chartData} />}
             {activeTab === 'indicators' && <IndicatorsChart indicatorData={indicatorData} />}
-            {activeTab === 'accuracy'   && <ForecastAccuracy forecastHistory={forecastHistory} />}
+            {activeTab === 'accuracy'   && <ForecastAccuracy forecastHistory={forecastHistory[activeCoin] || []} />}
             {activeTab === 'backtest'   && <BacktestPanel activeCoin={activeCoin} />}
             {activeTab === 'stats'      && <StatsPanel tradeLogs={tradeLogs} equityCurve={equityCurve} balance={balance} />}
           </div>
