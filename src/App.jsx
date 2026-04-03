@@ -92,7 +92,7 @@ export default function App() {
   const [activeTab,  setActiveTab]  = useState('chart');
 
   // ─── Refs (no re-render needed) ───────────────────────────────
-  const historyRef    = useRef([]);   // raw candle history for active coin
+  const historiesRef  = useRef({ BTC: [], ETH: [], SOL: [], TON: [] });
   const volumeRef     = useRef({ BTC: 0, ETH: 0, SOL: 0, TON: 0 });
   const prevPricesRef = useRef({});
   const imbalancesRef = useRef({ BTC: 0, ETH: 0, SOL: 0, TON: 0 });
@@ -229,43 +229,34 @@ export default function App() {
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
-  // 2. Fetch initial 60-candle history when active coin changes
+  // 2. Fetch initial 60-candle history for ALL coins on startup
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
-    historyRef.current = [];
-    pendingFcRef.current = null; // Important: Reset pending forecast on coin switch
-    setChartData([]);
-    setIndicatorData([]);
-    setBrainForecast([]);
-    setPythonForecast([]);
-
-    const load = async () => {
-      try {
-        const res  = await fetch(`https://api.binance.com/api/v3/klines?symbol=${activeCoin}USDT&interval=1m&limit=60`);
-        const json = await res.json();
-        const candles = json.map(k => ({
-          time:         new Date(k[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          price:        parseFloat(k[4]),
-          volume:       parseFloat(k[5]) / 60,
-          imbalance:    0,
-          btc_momentum: 0,
-        }));
-        historyRef.current = candles;
-        // Immediately render chart from historical data
-        setChartData(buildChartData(candles, [], []));
-        setIndicatorData(buildIndicatorData(candles));
-        // Set RSI from history
-        const prices = candles.map(d => d.price);
-        const rsiArr = calcRSI(prices);
-        const lastRSI = rsiArr[rsiArr.length - 1];
-        if (lastRSI != null) {
-          setRsiValues(prev => ({ ...prev, [activeCoin]: +lastRSI.toFixed(1) }));
-          prevRSIRef.current[activeCoin] = lastRSI;
-        }
-      } catch { /* offline */ }
+    const loadAll = async () => {
+      const symbolsList = Object.keys(SYMBOLS);
+      for (const sName of symbolsList) {
+        const coinCode = SYMBOLS[sName].short;
+        try {
+          const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sName}&interval=1m&limit=100`);
+          const json = await res.json();
+          const candles = json.map(k => ({
+            time: new Date(k[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            price: parseFloat(k[4]),
+            volume: parseFloat(k[5]) / 60,
+            imbalance: 0,
+            btc_momentum: 0,
+          }));
+          historiesRef.current[coinCode] = candles;
+          
+          if (coinCode === activeCoin) {
+            setChartData(buildChartData(candles, [], []));
+            setIndicatorData(buildIndicatorData(candles));
+          }
+        } catch (e) { console.warn(`History load failed for ${sName}`, e); }
+      }
     };
-    load();
-  }, [activeCoin]);
+    loadAll();
+  }, [activeCoin]); // We re-run partially on switch to update views, but historiesRef persists
 
   // ═══════════════════════════════════════════════════════════════
   // 3. 1-second tick: append candle, recompute indicators, update charts
@@ -277,47 +268,51 @@ export default function App() {
     pythonRef.current = pythonForecast;
 
     const tick = setInterval(() => {
-      const coinPrice = prices[activeCoin];
-      if (!coinPrice) return;
-
-      // Build new candle point
-      const vol    = volumeRef.current[activeCoin] || 0;
-      volumeRef.current[activeCoin] = 0;
       const btcMom = (prices['BTC'] || 0) - (prevPricesRef.current['BTC'] || prices['BTC'] || 0);
+      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-      const pt = {
-        time:         new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        price:        coinPrice,
-        volume:       vol,
-        imbalance:    imbalancesRef.current[activeCoin] || 0,
-        btc_momentum: btcMom,
-      };
+      // Update ALL coin histories in parallel
+      Object.keys(SYMBOLS).forEach(sFull => {
+        const c = SYMBOLS[sFull].short;
+        const cPrice = prices[c];
+        if (!cPrice) return;
 
-      const history = [...historyRef.current, pt].slice(-80);
-      historyRef.current = history;
+        const vol = volumeRef.current[c] || 0;
+        volumeRef.current[c] = 0;
 
-      // RSI for all coins (active only — others refreshed on switch)
-      const rawPrices = history.map(d => d.price);
-      const rsiArr    = calcRSI(rawPrices);
-      const lastRSI   = rsiArr[rsiArr.length - 1];
+        const pt = {
+          time: nowTime,
+          price: cPrice,
+          volume: vol,
+          imbalance: imbalancesRef.current[c] || 0,
+          btc_momentum: btcMom,
+        };
 
-      if (lastRSI != null && isFinite(lastRSI)) {
-        setRsiValues(prev => ({ ...prev, [activeCoin]: +lastRSI.toFixed(1) }));
+        const h = [...(historiesRef.current[c] || []), pt].slice(-10000); // 10,000 pts buffer
+        historiesRef.current[c] = h;
 
-        // RSI crossing notifications (outside of state updater)
-        const prevRSI = prevRSIRef.current[activeCoin];
-        if (prevRSI != null) {
-          if (prevRSI >= 30 && lastRSI < 30)
-            pushNotif('alert', `RSI Oversold · ${activeCoin}`, `RSI: ${lastRSI.toFixed(1)} — перепроданность`);
-          else if (prevRSI <= 70 && lastRSI > 70)
-            pushNotif('alert', `RSI Overbought · ${activeCoin}`, `RSI: ${lastRSI.toFixed(1)} — перекупленность`);
+        // If this is the active coin, update the UI
+        if (c === activeCoin) {
+          const rawPrices = h.map(d => d.price);
+          const rsiArr = calcRSI(rawPrices);
+          const lastRSI = rsiArr[rsiArr.length - 1];
+
+          if (lastRSI != null && isFinite(lastRSI)) {
+            setRsiValues(prev => ({ ...prev, [activeCoin]: +lastRSI.toFixed(1) }));
+            const prevRSI = prevRSIRef.current[activeCoin];
+            if (prevRSI != null) {
+              if (prevRSI >= 30 && lastRSI < 30)
+                pushNotif('alert', `RSI Oversold · ${activeCoin}`, `RSI: ${lastRSI.toFixed(1)}`);
+              else if (prevRSI <= 70 && lastRSI > 70)
+                pushNotif('alert', `RSI Overbought · ${activeCoin}`, `RSI: ${lastRSI.toFixed(1)}`);
+            }
+            prevRSIRef.current[activeCoin] = lastRSI;
+          }
+
+          setChartData(buildChartData(h, brainForecast, pythonForecast));
+          setIndicatorData(buildIndicatorData(h));
         }
-        prevRSIRef.current[activeCoin] = lastRSI;
-      }
-
-      // Update chart + indicator data
-      setChartData(buildChartData(history, brainForecast, pythonForecast));
-      setIndicatorData(buildIndicatorData(history));
+      });
     }, 1000);
 
     return () => clearInterval(tick);
@@ -329,7 +324,7 @@ export default function App() {
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     const timer = setInterval(async () => {
-      const history = historyRef.current;
+      const history = historiesRef.current[activeCoin] || [];
       if (history.length < 12) return;
 
       const rawPrices  = history.map(d => d.price);
@@ -373,7 +368,7 @@ export default function App() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(2500),
+          signal: AbortSignal.timeout(8000), // Increased to 8s
         });
         const pyData = await res.json();
 

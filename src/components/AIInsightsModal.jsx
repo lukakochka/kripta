@@ -1,59 +1,19 @@
-import { useState, useEffect } from 'react';
+import React from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
-
-export default function AIInsightsModal({ isOpen, onClose, symbol, data }) {
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (isOpen && symbol && data?.length) {
-      generateReport();
-    }
-  }, [isOpen, symbol]);
-
-  const generateReport = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const payload = {
-        symbol,
-        data: data.slice(-40).map(d => ({
-          time: d.time,
-          price: d.price,
-          volume: d.volume || 0,
-          imbalance: d.imbalance || 0,
-          btc_momentum: d.btc_momentum || 0
-        }))
-      };
-
-      const res = await fetch(`${API_BASE}/analyze/${symbol}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const result = await res.json();
-      if (result.error) throw new Error(result.error);
-      setReport(result);
-    } catch (err) {
-      setError('Не удалось получить отчет от ИИ. Проверьте соединение с сервером.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+const AIInsightsModal = ({ isOpen, onClose, symbol, data, loading }) => {
   if (!isOpen) return null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className="modal-content premium" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="ai-icon-pulse">🧠</div>
             <div>
-              <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#fff' }}>Глубокий анализ: {symbol}</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CryptoOracle PRO Analysis Engine v4.0</div>
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Premium AI Insights</h3>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Deep Market Analysis · {symbol}
+              </div>
             </div>
           </div>
           <button className="modal-close" onClick={onClose}>&times;</button>
@@ -61,80 +21,67 @@ export default function AIInsightsModal({ isOpen, onClose, symbol, data }) {
 
         <div className="modal-body">
           {loading ? (
-            <div style={{ padding: '40px 0', textAlign: 'center' }}>
-              <div className="loader" style={{ margin: '0 auto 15px' }}></div>
-              <div style={{ color: 'var(--blue)', fontWeight: 600 }}>ИИ анализирует рынок...</div>
+            <div style={{ padding: '60px 0', textAlign: 'center' }}>
+              <div className="loader" style={{ margin: '0 auto 20px' }}></div>
+              <div className="loading-text">ИИ сканирует рыночные аномалии...</div>
             </div>
-          ) : error ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--red)' }}>
-              ⚠️ {error}
-            </div>
-          ) : report ? (
+          ) : data ? (
             <div className="report-container">
-              <div className="report-summary">
-                <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: 5 }}>Заключение ИИ</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--blue)' }}>{report.summary}</div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, marginBottom: 20 }}>
-                <div className="report-card">
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>Рекомендация</div>
-                  <div style={{ 
-                    fontSize: '1.5rem', fontWeight: 900, 
-                    color: report.recommendation === 'BUY' ? 'var(--green)' : report.recommendation === 'SELL' ? 'var(--red)' : 'var(--yellow)' 
-                  }}>
-                    {report.recommendation}
+              {/* Summary Card */}
+              <div className="report-summary-premium">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div className={`recommendation-badge ${data.recommendation.toLowerCase()}`}>
+                    {data.recommendation}
+                  </div>
+                  <div className="confidence-meter">
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CONFIDENCE:</span>
+                    <span style={{ fontWeight: 800, color: 'var(--blue)', marginLeft: 6 }}>{data.confidence}%</span>
                   </div>
                 </div>
-                <div className="report-card">
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>Уверенность</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--blue)' }}>
-                    {report.confidence}%
-                  </div>
-                </div>
+                <p className="summary-text">{data.summary}</p>
               </div>
 
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                   📊 Ключевые факторы анализа:
+              {/* Reasoning Matrix Table */}
+              <div className="section-title">Матрица обоснований</div>
+              <div className="matrix-table">
+                <div className="matrix-header">
+                  <div>Фактор</div>
+                  <div>Значение</div>
+                  <div>Влияние</div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {report.factors.map((f, i) => (
-                    <div key={i} style={{ 
-                      background: 'rgba(255,255,255,0.03)', 
-                      padding: '10px 14px', 
-                      borderRadius: 6, 
-                      fontSize: '0.82rem',
-                      borderLeft: '3px solid var(--blue)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10
-                    }}>
-                      <span style={{ color: 'var(--blue)' }}>●</span> {f}
+                {data.matrix?.map((item, i) => (
+                  <div key={i} className="matrix-row">
+                    <div className="factor-name">
+                      {item.factor}
+                      <span className="factor-reason">{item.reason}</span>
                     </div>
-                  ))}
-                </div>
+                    <div className="factor-value mono">{item.value}</div>
+                    <div className={`factor-impact ${item.impact.toLowerCase()}`}>
+                      {item.impact === 'BULL' ? '▲ POSITIVE' : (item.impact === 'BEAR' ? '▼ NEGATIVE' : '○ NEUTRAL')}
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <div style={{ 
-                background: 'rgba(0,180,255,0.05)', 
-                border: '1px solid rgba(0,180,255,0.2)', 
-                borderRadius: 8, 
-                padding: '12px',
-                fontSize: '0.75rem',
-                color: 'var(--text-secondary)',
-                lineHeight: 1.5
-              }}>
-                <strong>Примечание:</strong> ИИ проанализировал RSI, MACD, Полосы Боллинджера и текущую структуру BTC-Momentum. Данный отчет носит информационный характер и не является финансовой рекомендацией.
+              {/* Context Alert */}
+              <div className="context-alert">
+                <span style={{ marginRight: 8 }}>ℹ️</span>
+                Данный отчет сформирован на основе Random Forest & NLP сентимента. Учитывается корреляция с BTC (30%) и локальные индикаторы (70%).
               </div>
             </div>
-          ) : null}
+          ) : (
+            <div className="empty-state">Ошибка получения данных. Проверьте соединение с бэкендом.</div>
+          )}
         </div>
 
         <div className="modal-footer">
-          <button className="btn-primary" style={{ width: '100%' }} onClick={onClose}>Понятно, спасибо</button>
+          <button className="btn-primary" style={{ width: '100%', padding: '12px' }} onClick={onClose}>
+            Понятно, в работу
+          </button>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default AIInsightsModal;

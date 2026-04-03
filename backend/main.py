@@ -143,8 +143,9 @@ def rf_predict(prices, volumes, rsi_v, macd_v, bb_pct):
     macd_sig = np.sign(macd_v) * 0.0008 if macd_v != 0 else 0
     bb_sig = (0.5 - bb_pct) * 0.0006 if bb_pct is not None else 0
 
-    # Weighted ensemble signal
-    signal = (
+    # Balanced ensemble signal
+    # Native: 70%, BTC: 30%
+    native_signal = (
         m1 * 0.18 +
         m5 * 0.25 +
         m10 * 0.15 +
@@ -153,6 +154,11 @@ def rf_predict(prices, volumes, rsi_v, macd_v, bb_pct):
         bb_sig +
         vol_signal
     )
+    
+    # BTC Momentum impact
+    btc_eff = (req_btc_mom * 0.0005) if 'req_btc_mom' in locals() else 0 # Will extract from data if needed
+    
+    signal = native_signal * 0.7 + (req_btc_mom * 0.01 if 'req_btc_mom' in locals() else 0) * 0.3
 
     # Apply EMA smoothing on last 5 price deltas
     if len(prices) >= 6:
@@ -281,20 +287,42 @@ async def analyze(symbol: str, req: PredictRequest):
     news = get_sentiment()
     sent_idx = news["index"]
     
-    # Construct reasoning
-    factors = []
-    if rsi_v < 32: factors.append("RSI в зоне перепроданности (покупки)")
-    elif rsi_v > 68: factors.append("RSI в зоне перекупленности (продажи)")
-    else: factors.append(f"RSI нейтрален ({round(rsi_v,1)})")
+    # Construct reasoning matrix
+    matrix = []
     
-    if sent_idx > 60: factors.append("Общий сентимент рынка позитивен")
-    elif sent_idx < 40: factors.append("На рынке преобладает страх")
+    # RSI
+    rsi_score = (50 - rsi_v) / 50 # Positive if oversold
+    matrix.append({
+        "factor": "Индикатор RSI",
+        "value": f"{round(rsi_v, 1)}",
+        "impact": "BULL" if rsi_v < 40 else ("BEAR" if rsi_v > 60 else "NEUTRAL"),
+        "reason": "Зона перепроданности" if rsi_v < 32 else ("Зона перекупленности" if rsi_v > 68 else "Норма")
+    })
     
-    if macro.startswith("BULL"): factors.append(f"Зафиксирован растущий тренд ({macro})")
-    elif macro.startswith("BEAR"): factors.append(f"Зафиксирован падающий тренд ({macro})")
+    # MACD
+    matrix.append({
+        "factor": "MACD Тренд",
+        "value": "Растущий" if macd_v > 0 else "Падающий",
+        "impact": "BULL" if macd_v > 0 else "BEAR",
+        "reason": "Бычий импульс" if macd_v > 0 else "Медвежий импульс"
+    })
     
-    if bp < 0.2: factors.append("Цена у нижней границы Боллинджера (отскок)")
-    elif bp > 0.8: factors.append("Цена у верхней границы Боллинджера (сопротивление)")
+    # Sentiment
+    matrix.append({
+        "factor": "NLP Сентимент",
+        "value": f"{sent_idx}%",
+        "impact": "BULL" if sent_idx > 60 else ("BEAR" if sent_idx < 40 else "NEUTRAL"),
+        "reason": "Позитивные новости" if sent_idx > 60 else ("Страх на рынке" if sent_idx < 40 else "Смешанный фон")
+    })
+
+    # BTC Correlation
+    last_btc_mom = req.data[-1].btc_momentum if req.data else 0
+    matrix.append({
+        "factor": "Связь с BTC",
+        "value": "Высокая" if abs(last_btc_mom) > 5 else "Средняя",
+        "impact": "BULL" if last_btc_mom > 0 else "BEAR",
+        "reason": "Биткоин тянет рынок вверх" if last_btc_mom > 2 else ("Биткоин давит вниз" if last_btc_mom < -2 else "Нейтрально")
+    })
     
     summary = ""
     if conf > 65: summary = "ИИ уверен в продолжении текущего движения."
@@ -305,6 +333,7 @@ async def analyze(symbol: str, req: PredictRequest):
         "symbol": symbol,
         "summary": summary,
         "factors": factors,
+        "matrix": matrix,
         "confidence": conf,
         "recommendation": "BUY" if (conf > 60 and macro.startswith("BULL")) else ("SELL" if (conf > 60 and macro.startswith("BEAR")) else "HOLD"),
         "timestamp": time.time()

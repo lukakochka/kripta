@@ -130,10 +130,30 @@ function PaperTrading({ balance, position, tradeLogs, prices }) {
   );
 }
 
-export default function RightPanel({ newsData, rlAgent, balance, position, tradeLogs, prices, activeCoin, historyData }) {
+export default function RightPanel({ newsData, rlAgent, balance, position, tradeLogs, prices, activeCoin }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
   const sentimentIdx = newsData?.index ?? 50;
   const articles = newsData?.articles ?? [];
+
+  const handleGenerateReport = async () => {
+    setIsModalOpen(true);
+    setLoading(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/analyze/${activeCoin}`, {
+        method: 'POST'
+      });
+      const data = await response.json();
+      setReportData(data);
+    } catch (err) {
+      console.error("Report fetch failed:", err);
+      setReportData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="panel panel-right">
@@ -177,18 +197,19 @@ export default function RightPanel({ newsData, rlAgent, balance, position, trade
         </div>
 
         {/* AI Analysis Report Action */}
-        <div style={{ padding: '4px 12px 16px' }}>
+        <div style={{ padding: '2px 12px 16px' }}>
           <button 
             className="btn-primary" 
             style={{ 
               width: '100%', padding: '12px', fontSize: '0.82rem', 
               background: 'linear-gradient(135deg, var(--blue), #4f46e5)',
-              boxShadow: '0 0 15px rgba(0,180,255,0.25)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10
+              boxShadow: '0 12px 24px rgba(0,180,255,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              transform: 'translateY(-2px)'
             }}
-            onClick={() => setIsModalOpen(true)}
+            onClick={handleGenerateReport}
           >
-            <span style={{ fontSize: '1.1rem' }}>🧠</span> Сгенерировать AI-отчет
+            <span style={{ fontSize: '1.2rem' }}>🧠</span> Сгенерировать AI-отчет
           </button>
         </div>
 
@@ -199,7 +220,8 @@ export default function RightPanel({ newsData, rlAgent, balance, position, trade
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         symbol={activeCoin}
-        data={historyData}
+        data={reportData}
+        loading={loading}
       />
     </div>
   );
