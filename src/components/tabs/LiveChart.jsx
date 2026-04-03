@@ -14,7 +14,7 @@ const CustomTooltip = ({ active, payload, label }) => {
         <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 3 }}>
           <span style={{ color: p.color }}>{p.name}</span>
           <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: '#fff' }}>
-            ${Number(p.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            ${Number(p.value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
           </span>
         </div>
       ))}
@@ -41,7 +41,7 @@ export default function LiveChart({ chartData }) {
   );
   const minV = allVals.length ? Math.min(...allVals) : 0;
   const maxV = allVals.length ? Math.max(...allVals) : 1;
-  const pad = Math.max((maxV - minV) * 0.08, 1);
+  const pad = Math.max((maxV - minV) * 0.1, minV * 0.002, 0.001);
   const domainMin = minV - pad;
   const domainMax = maxV + pad;
 
@@ -60,9 +60,9 @@ export default function LiveChart({ chartData }) {
             />
             <YAxis
               domain={[domainMin, domainMax]}
-              tick={{ fontSize: 10, fill: '#2a4060', fontFamily: 'var(--mono)' }}
+              tick={{ fontSize: 10, fill: '#64748b', fontFamily: 'var(--mono)' }}
               axisLine={false} tickLine={false}
-              tickFormatter={v => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+              tickFormatter={v => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}
               width={72}
             />
             <Tooltip content={<CustomTooltip />} />
