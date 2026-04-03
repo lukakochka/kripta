@@ -3,9 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import numpy as np
-import random
-import time
 import os
+import json
+import urllib.request
 
 app = FastAPI(title="CryptoOracle AI Backend v4")
 
@@ -81,7 +81,7 @@ class QLearner:
         trend = 1 if len(prices) > 1 and prices[-1] > prices[-2] else 0
         rzone = 0 if rsi_v < 32 else (2 if rsi_v > 68 else 1)
         mzone = 1 if macd_v > 0 else 0
-        return (trend, rzone, mzone)
+        return str((trend, rzone, mzone)) # Store as string for JSON keys
 
     def choose(self, s):
         if random.random() < self.eps:
@@ -98,6 +98,28 @@ class QLearner:
         return self.q.get(s, [0.0, 0.0, 0.0])
 
 agents = {}
+AGENTS_FILE = "agents_data.json"
+
+def save_agents():
+    try:
+        data = {s: a.q for s, a in agents.items()}
+        with open(AGENTS_FILE, "w") as f:
+            json.dump(data, f)
+    except: pass
+
+def load_agents():
+    if os.path.exists(AGENTS_FILE):
+        try:
+            with open(AGENTS_FILE, "r") as f:
+                data = json.load(f)
+                for s, q_table in data.items():
+                    a = QLearner()
+                    a.q = q_table
+                    agents[s] = a
+        except: pass
+
+# Initial load
+load_agents()
 
 def get_agent(sym):
     if sym not in agents:
@@ -227,6 +249,9 @@ async def predict(req: PredictRequest):
     agent.last = {"price": prices[-1], "state": s, "action": a}
     actions = ["SELL", "HOLD", "BUY"]
 
+    # Simple periodic save (every request, but file IO is fast for small Q)
+    save_agents()
+
     return {
         "prediction": prediction,
         "macro": macro,
@@ -240,6 +265,49 @@ async def predict(req: PredictRequest):
             "q_values": [round(v, 3) for v in q],
             "balance": round(agent.virtual_pnl, 2),
         },
+    }
+
+@app.post("/analyze/{symbol}")
+async def analyze(symbol: str, req: PredictRequest):
+    prices = [d.price for d in req.data]
+    if len(prices) < 10: return {"error": "Need more data"}
+    
+    rsi_v = rsi(prices)
+    macd_v = macd(prices)
+    bu, bm, bl = bollinger(prices)
+    bp = ((prices[-1] - bl) / (bu - bl)) if (bu and bl and bu != bl) else 0.5
+    preds, conf, macro = rf_predict(prices, [d.volume for d in req.data], rsi_v, macd_v, bp)
+    
+    news = get_sentiment()
+    sent_idx = news["index"]
+    
+    # Construct reasoning
+    factors = []
+    if rsi_v < 32: factors.append("RSI в зоне перепроданности (покупки)")
+    elif rsi_v > 68: factors.append("RSI в зоне перекупленности (продажи)")
+    else: factors.append(f"RSI нейтрален ({round(rsi_v,1)})")
+    
+    if sent_idx > 60: factors.append("Общий сентимент рынка позитивен")
+    elif sent_idx < 40: factors.append("На рынке преобладает страх")
+    
+    if macro.startswith("BULL"): factors.append(f"Зафиксирован растущий тренд ({macro})")
+    elif macro.startswith("BEAR"): factors.append(f"Зафиксирован падающий тренд ({macro})")
+    
+    if bp < 0.2: factors.append("Цена у нижней границы Боллинджера (отскок)")
+    elif bp > 0.8: factors.append("Цена у верхней границы Боллинджера (сопротивление)")
+    
+    summary = ""
+    if conf > 65: summary = "ИИ уверен в продолжении текущего движения."
+    elif conf < 40: summary = "Рынок неопределен, ИИ рекомендует осторожность."
+    else: summary = "Сигналы умеренные, следите за объемами."
+
+    return {
+        "symbol": symbol,
+        "summary": summary,
+        "factors": factors,
+        "confidence": conf,
+        "recommendation": "BUY" if (conf > 60 and macro.startswith("BULL")) else ("SELL" if (conf > 60 and macro.startswith("BEAR")) else "HOLD"),
+        "timestamp": time.time()
     }
 
 @app.get("/backtest/{symbol}")

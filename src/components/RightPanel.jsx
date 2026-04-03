@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { formatUSD, formatPrice } from '../utils/formatter';
+import AIInsightsModal from './AIInsightsModal';
 
 const getSentimentLabel = (idx) => {
   if (idx >= 70) return { label: 'Extreme Greed', color: 'var(--green)' };
@@ -128,7 +130,8 @@ function PaperTrading({ balance, position, tradeLogs, prices }) {
   );
 }
 
-export default function RightPanel({ newsData, rlAgent, balance, position, tradeLogs, prices }) {
+export default function RightPanel({ newsData, rlAgent, balance, position, tradeLogs, prices, activeCoin, historyData }) {
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const sentimentIdx = newsData?.index ?? 50;
   const articles = newsData?.articles ?? [];
 
@@ -173,8 +176,31 @@ export default function RightPanel({ newsData, rlAgent, balance, position, trade
           <PaperTrading balance={balance} position={position} tradeLogs={tradeLogs} prices={prices} />
         </div>
 
+        {/* AI Analysis Report Action */}
+        <div style={{ padding: '4px 12px 16px' }}>
+          <button 
+            className="btn-primary" 
+            style={{ 
+              width: '100%', padding: '12px', fontSize: '0.82rem', 
+              background: 'linear-gradient(135deg, var(--blue), #4f46e5)',
+              boxShadow: '0 0 15px rgba(0,180,255,0.25)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10
+            }}
+            onClick={() => setIsModalOpen(true)}
+          >
+            <span style={{ fontSize: '1.1rem' }}>🧠</span> Сгенерировать AI-отчет
+          </button>
+        </div>
+
         <div style={{ height: 16 }} />
       </div>
+
+      <AIInsightsModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        symbol={activeCoin}
+        data={historyData}
+      />
     </div>
   );
 }

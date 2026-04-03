@@ -117,13 +117,33 @@ export default function App() {
   const [rlAgent,        setRlAgent]        = useState({ action: 'HOLD', q_values: [0, 0, 0], balance: 0 });
 
   // ─── Paper Trading ────────────────────────────────────────────
-  const [balance,     setBalance]     = useState(10000);
+  const [balance,     setBalance]     = useState(() => {
+    const saved = localStorage.getItem('crypto_oracle_balance');
+    return saved ? parseFloat(saved) : 10000;
+  });
   const [position,    setPosition]    = useState(null);
-  const [tradeLogs,   setTradeLogs]   = useState([]);
-  const [equityCurve, setEquityCurve] = useState([{ time: formatTime(), equity: 10000 }]);
+  const [tradeLogs,   setTradeLogs]   = useState(() => {
+    const saved = localStorage.getItem('crypto_oracle_trade_logs');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [equityCurve, setEquityCurve] = useState(() => {
+    const saved = localStorage.getItem('crypto_oracle_equity_curve');
+    return saved ? JSON.parse(saved) : [{ time: formatTime(), equity: 10000 }];
+  });
 
   // ─── Forecast accuracy ────────────────────────────────────────
-  const [forecastHistory, setForecastHistory] = useState({ BTC: [], ETH: [], SOL: [], TON: [] });
+  const [forecastHistory, setForecastHistory] = useState(() => {
+    const saved = localStorage.getItem('crypto_oracle_forecast_history');
+    return saved ? JSON.parse(saved) : { BTC: [], ETH: [], SOL: [], TON: [] };
+  });
+
+  // ─── Local Storage Sync ───
+  useEffect(() => {
+    localStorage.setItem('crypto_oracle_balance', balance);
+    localStorage.setItem('crypto_oracle_trade_logs', JSON.stringify(tradeLogs));
+    localStorage.setItem('crypto_oracle_equity_curve', JSON.stringify(equityCurve));
+    localStorage.setItem('crypto_oracle_forecast_history', JSON.stringify(forecastHistory));
+  }, [balance, tradeLogs, equityCurve, forecastHistory]);
 
   // ─── Notifications ────────────────────────────────────────────
   const { notifs, push: pushNotif, dismiss } = useNotifications();
@@ -560,6 +580,8 @@ export default function App() {
           position={position}
           tradeLogs={tradeLogs}
           prices={prices}
+          activeCoin={activeCoin}
+          historyData={chartData}
         />
       </div>
     </>
