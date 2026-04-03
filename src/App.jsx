@@ -152,41 +152,80 @@ export default function App() {
   // 1. WebSocket — Binance live prices + order book depth
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
-    const streams = Object.keys(SYMBOLS)
-      .flatMap(s => [`${s.toLowerCase()}@trade`, `${s.toLowerCase()}@depth5@100ms`])
-      .join('/');
+    let ws = null;
+    let fallbackInterval = null;
 
-    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    const connect = () => {
+      const streams = Object.keys(SYMBOLS)
+        .flatMap(s => [`${s.toLowerCase()}@trade`, `${s.toLowerCase()}@depth5@100ms`])
+        .join('/');
 
-    ws.onmessage = ({ data }) => {
-      const msg = JSON.parse(data);
-      if (!msg.data) return;
+      ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
 
-      const streamName = msg.stream;
-      const symbol = streamName.split('@')[0].toUpperCase();
-      const coin = SYMBOLS[symbol]?.short;
-      if (!coin) return;
+      ws.onmessage = ({ data }) => {
+        const msg = JSON.parse(data);
+        if (!msg.data) return;
 
-      if (streamName.includes('@trade')) {
-        const price = parseFloat(msg.data.p);
-        const qty   = parseFloat(msg.data.q);
-        volumeRef.current[coin] = (volumeRef.current[coin] || 0) + qty;
-        setPrices(prev => {
-          prevPricesRef.current[coin] = prev[coin] || price;
-          return { ...prev, [coin]: price };
-        });
-        setPrevPrices(prev => ({ ...prev, [coin]: prev[coin] || price }));
-      } else if (streamName.includes('@depth5')) {
-        const bids = msg.data.bids || [];
-        const asks = msg.data.asks || [];
-        const imb = bids.reduce((a, b) => a + parseFloat(b[1]), 0)
-                  - asks.reduce((a, b) => a + parseFloat(b[1]), 0);
-        imbalancesRef.current[coin] = imb;
-        setImbalances(prev => ({ ...prev, [coin]: imb }));
-      }
+        const streamName = msg.stream;
+        const symbol = streamName.split('@')[0].toUpperCase();
+        const coin = SYMBOLS[symbol]?.short;
+        if (!coin) return;
+
+        if (streamName.includes('@trade')) {
+          const price = parseFloat(msg.data.p);
+          const qty   = parseFloat(msg.data.q);
+          volumeRef.current[coin] = (volumeRef.current[coin] || 0) + qty;
+          setPrices(prev => {
+            prevPricesRef.current[coin] = prev[coin] || price;
+            return { ...prev, [coin]: price };
+          });
+          setPrevPrices(prev => ({ ...prev, [coin]: prev[coin] || price }));
+        } else if (streamName.includes('@depth5')) {
+          const bids = msg.data.bids || [];
+          const asks = msg.data.asks || [];
+          const imb = bids.reduce((a, b) => a + parseFloat(b[1]), 0)
+                    - asks.reduce((a, b) => a + parseFloat(b[1]), 0);
+          imbalancesRef.current[coin] = imb;
+          setImbalances(prev => ({ ...prev, [coin]: imb }));
+        }
+      };
+
+      ws.onerror = () => setTimeout(connect, 5000);
+      ws.onclose = () => setTimeout(connect, 5000);
     };
 
-    return () => ws.close();
+    // ─── Fallback Polling (Every 5s) ───
+    // This ensures prices update even if WS is blocked or unstable for certain coins
+    fallbackInterval = setInterval(async () => {
+      try {
+        const res = await fetch('https://api.binance.com/api/v3/ticker/price');
+        const data = await res.json();
+        const priceMap = {};
+        data.forEach(item => {
+          if (SYMBOLS[item.symbol]) {
+            priceMap[SYMBOLS[item.symbol].short] = parseFloat(item.price);
+          }
+        });
+
+        setPrices(prev => {
+          const next = { ...prev };
+          Object.keys(priceMap).forEach(c => {
+            if (priceMap[c]) {
+              prevPricesRef.current[c] = prev[c] || priceMap[c];
+              next[c] = priceMap[c];
+            }
+          });
+          return next;
+        });
+      } catch (e) { console.warn('Polling fallback error:', e); }
+    }, 5000);
+
+    connect();
+
+    return () => {
+      if (ws) ws.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
+    };
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
